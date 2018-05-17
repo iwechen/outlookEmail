@@ -4,7 +4,7 @@ Created on 2018年5月15日
 @author: chenwei
 Email:iwechen123@gmail.com
 '''
-
+import requests
 import pymongo
 import sys,os,csv
 import xlwt
@@ -12,15 +12,18 @@ from docx import Document
 from docx.shared import Pt
 from docx.shared import Inches
 from docx.oxml.ns import qn
-
+import json
+import re
 class MongoToExcel(object):
     def __init__(self):
         self.client = pymongo.MongoClient(host='127.0.0.1',port=27017)
         self.db = self.client['outlook']
         self.collection1 = self.db['data']
 
+        self.iamge_list = list()
+
     def save_to_excel(self,data_li):
-        path = sys.path[0] + '/data/'
+        path = sys.path[0]+'/2018-5-10/'
         folder = os.path.exists(path)  
         if not folder:
             os.makedirs(path)
@@ -54,22 +57,45 @@ class MongoToExcel(object):
             sss += ww
         
         paragraph = document.add_paragraph(sss)
-        path = sys.path[0] + '/data/'
+        path = sys.path[0] + '/2018-5-10/'
         document.save(path+'订单列表信息.docx')
 
     def find_mongo(self):
-        data_list = [i for i in self.collection1.find({},{'_id':0})]
-        # print(data_list)
+        f=open('file1.csv','r')
+        datas=f.read()
+        f.close()
+
+        data_str_li = re.sub(r'}{','}&&&{',datas).split('&&&')
+        data_li = list(set(data_str_li))
+        data_list = list()
+        for i in data_li:
+            # print(i)
+            data_dict = json.loads(i)
+            data_list.append(data_dict)
+            self.iamge_list.append({"pid":data_dict['产品编号'],'image':data_dict['image']})
+
         if data_list == []:
             return
+        
         self.save_to_excel(data_list)
+        print('Excel successful!!!')
         self.save_to_word(data_list)
+        print('Word successful!!!')
+        self.down_load_image()
     
     def down_load_image(self):
-        # with open(path+'/'+str(name)+'.jpg','wb') as f:
-        #     f.write(image) 
-        pass
-
+        for data_dic in self.iamge_list:
+            ima_name = data_dic['pid']
+            url = data_dic['image']
+            print('%s down_load!!!'%ima_name)
+            path = sys.path[0]+'/2018-5-10/2018-5-10/'
+            folder = os.path.exists(path)  
+            if not folder:
+                os.makedirs(path)
+            response = requests.get(url).content
+            with open(path + ima_name+'.jpg','wb') as f:
+                f.write(response)
+            
     def run(self):
         self.find_mongo()
 

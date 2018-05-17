@@ -11,22 +11,25 @@ from email.utils import parseaddr
 import poplib
 from email.parser import Parser
 from six.moves import queue
-import outlook
+# import outlook
+from .outlook import Outlook
 import threading
 import time
+import datetime
 from lxml import etree
 import re
 import urllib.parse
-from ebay import EbayApi
-from ems import EMS
+from .ebay import EbayApi
+from .ems import EMS
 import json
-import pymongo
+# import pymongo
 
 class OutlookScheduler(object):
     def __init__(self):
-        self.client = pymongo.MongoClient(host='127.0.0.1',port=27017)
-        self.db = self.client['outlook']
-        self.collection = self.db['data']
+        self.flag = True
+        # self.client = pymongo.MongoClient(host='127.0.0.1',port=27017)
+        # self.db = self.client['outlook']
+        # self.collection = self.db['data']
 
         self._outlook_email_queue = queue.Queue(10)
         self._content_email_queue = queue.Queue(10)
@@ -50,24 +53,10 @@ class OutlookScheduler(object):
         return charset
 
     # indent用于缩进显示:
-    def print_info(self,msg, indent=0):
-        if indent == 0:
-            for header in ['From', 'To', 'Subject']:
-                value = msg.get(header, '')
-                if value:
-                    if header=='Subject':
-                        value = self.decode_str(value)
-                    else:
-                        hdr, addr = parseaddr(value)
-                        # print(hdr,addr)
-                        name = self.decode_str(hdr)
-                        value = '%s <%s>' % (name, addr)
-                # print('%s%s: %s' % ('  ' * indent, header, value))
+    def print_info(self,msg, indent=1):
         if (msg.is_multipart()):
             parts = msg.get_payload()
             for n, part in enumerate(parts):
-                # print('%spart %s' % ('  ' * indent, n))
-                # print('%s--------------------' % ('  ' * indent))
                 self.print_info(part, indent + 1)
         else:
             content_type = msg.get_content_type()
@@ -80,14 +69,10 @@ class OutlookScheduler(object):
                 except Exception as e:
                     print(e)
                 else:
-                    # print(content)
                     self._content_email_queue.put(content)
-            else:
-                pass
-                # print('%sAttachment: %s' % ('  ' * indent, content_type))
 
     def run_outlook(self):
-        mail = outlook.Outlook()
+        mail = Outlook()
         try:
             with open('usr.txt','r') as f:
                 read_str = f.read()
@@ -105,29 +90,41 @@ class OutlookScheduler(object):
             # mail.login('iwechen123@outlook.com','cw123456')
             mail.inbox()
             id_li = mail.allIds()
+            # print(id_li)
             print('本次筛选共有 %d 封有效邮件'%len(id_li))
             for index,ids in enumerate(id_li):
+                # print(ids)
                 msg_content = mail.getEmail(str(index+1))
-                # print('----------------')
-                # print(msg_content)
                 self._outlook_email_queue.put(msg_content)
 
     def charset(self):
-        while True:
+        while self.flag:
             msg_content = self._outlook_email_queue.get()
             self.print_info(msg_content)
 
     def content_collec(self):
-        while True:
+        while self.flag:
             content = self._content_email_queue.get()
+            # print(content)
             html = etree.HTML(content)
-            
             a = html.xpath('//*[@id="divtagdefaultwrapper"]/div/div[2]/table/tbody/tr/td[2]/table[1]/tbody/tr/td/table/tbody/tr[3]/td/table[2]/tbody/tr/td[2]/div/div/table/tbody/tr/td')
+            # a = html.xpath('//div[@id="divtagdefaultwrapper"]/div')
             if a == []:
+                print('None')
                 continue
             else:
-                time = html.xpath('//*[@id="original-content"]/div[1]/div[2]/div[2]/text()')[0]
-                # print(time)
+                time_str = html.xpath('//*[@id="original-content"]/div[1]/div[2]/div[2]/text()')
+
+                if time_str == []:
+                    continue
+                # continue
+                # print(time_str)
+                time_str = re.sub(r'^\s|\sPM$','',time_str[0])
+                ltime=time.localtime(time.mktime(time.strptime(time_str,"%a,%b %d,%Y %H:%M")))
+                timeStr=time.strftime("%Y-%m-%d %H:%M", ltime)
+                # print(timeStr)
+                date_time = datetime.datetime.strptime(timeStr,'%Y-%m-%d %H:%M')
+
                 buyer_li_str = a[0].xpath('./table[1]/tbody[1]/tr[1]/td[1]/text()')
                 buyer_li = [re.sub(r'\n','',i) for i in buyer_li_str][1:-1]
                 buyer = ''.join(buyer_li)
@@ -187,7 +184,7 @@ class OutlookScheduler(object):
 
                 for index,pid in enumerate(item_li):
                     data_dict = dict()
-                    data_dict['订单日期'] = time
+                    data_dict['订单日期'] = timeStr
                     data_dict['客户姓名'] = buyer
                     data_dict['客户邮箱'] = end_li[-1].split(' ')[-1]
                     data_dict['产品编号'] = googs_data_li[0+index]['pid']
@@ -233,7 +230,7 @@ class OutlookScheduler(object):
                             pay_postage = ems_price_sum - pay_back
                         # 3，计算返还邮费金额
                         pay_back_price =round(float(end_li[-8]) -  pay_postage)
-                        print(pay_back_price)
+                        # print(pay_back_price)
 
                     data_dict['返邮费金额'] = pay_back_price
 
@@ -246,30 +243,56 @@ class OutlookScheduler(object):
                     # print(data_dict)
 
     def save_to_mongo(self):
-        while True:
-            data = self._collect_rsult_queue.get()
-            # print(data)
+        while self.flag:
+            data_dict = self._collect_rsult_queue.get()
+            f=open('file1.csv','a')
+            content = json.dumps(data_dict,ensure_ascii=False)
             try:
-                self.collection.insert(data)
-                print('mongo_sucessful')
+                f.write(content)
             except:
-                print('default')
+                pass
+            else:
+                print('successful!!!')
+            f.close()
+
+            
+    def stop_threading(self):
+        self.flag = True
+        count = 0
+        while True:
+            # print(count)
+            if count < 30:
+                if self._collect_rsult_queue.empty() and self._content_email_queue.empty() and self._outlook_email_queue.empty():
+                    count += 1
+                    time.sleep(2)
+                else:
+                    time.sleep(1)
+                    count = 0
+            else:
+                print('stop_byby!!!')
+                self.flag = False
+                break
 
     def init(self):
+        t0 = threading.Thread(target=self.stop_threading)
+        t0.setDaemon(True)
+        t0.start()
+
         t1 = threading.Thread(target=self.charset)
-        # t1.setDaemon(True)
+        t1.setDaemon(True)
         t1.start()
 
         t2 = threading.Thread(target=self.content_collec)
-        # t2.setDaemon(True)
+        t2.setDaemon(True)
         t2.start()
 
         t3 = threading.Thread(target=self.save_to_mongo)
-        # t2.setDaemon(True)
+        t3.setDaemon(True)
         t3.start()
 
     def run(self):
         self.init()
+        # self.stop_threading()
         self.run_outlook()
 
     def main(self):

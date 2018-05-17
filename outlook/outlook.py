@@ -9,7 +9,7 @@ import imaplib
 import smtplib
 import datetime
 import email.mime.multipart
-import config
+from .config import imap_server,imap_port
 import base64
 
 
@@ -26,7 +26,7 @@ class Outlook():
         self.password = password
         while True:
             try:
-                self.imap = imaplib.IMAP4_SSL(config.imap_server,config.imap_port)
+                self.imap = imaplib.IMAP4_SSL(imap_server,imap_port)
                 r, d = self.imap.login(username, password)
                 assert r == 'OK', 'login failed'
                 print("登录成功！", d)
@@ -95,6 +95,7 @@ class Outlook():
 
     def getEmail(self, ids):
         r, d = self.imap.fetch(ids, "(RFC822)")
+        # print(d[0][1])
         try:
             self.raw_email = d[0][1].decode('utf-8')
         except:
