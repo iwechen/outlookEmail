@@ -45,6 +45,7 @@ class Outlook():
 
     def inbox(self):
         return self.imap.select("Inbox")
+        # return self.imap.select("payment")
 
     def junk(self):
         return self.imap.select("Junk")

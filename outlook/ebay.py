@@ -37,18 +37,21 @@ class EbayApi(object):
         response = requests.get(url=url, headers=self.headers, params=params).content.decode('utf-8')
         html = etree.HTML(response)
         return_dict = dict()
-        weight_str = html.xpath('//*[@id="ds_div"]/div[1]/div/div[2]/div[1]/div[2]/dl/dd[2]/text()')[0]
-        image = html.xpath('//*[@id="ds_div"]/div[1]/div/div[2]/div[1]/div[2]/div[2]/p[1]/img/@src')[0]
-
-        weight = re.search(r'(\d+)g',weight_str).group(1)
-        pid = re.search(r'_(\d+)\.',image).group(1)
-        return_dict['pid'] = pid
-        return_dict['weight'] = weight
-        return_dict['image'] = image
-
-        # print(return_dict)
-
-        return return_dict
+        try:
+            weight_str = html.xpath('//*[@id="ds_div"]/div[1]/div/div[2]/div[1]/div[2]/dl/dd[2]/text()')[0]
+            image = html.xpath('//*[@id="ds_div"]/div[1]/div/div[2]/div[1]/div[2]/div[2]/p[1]/img/@src')[0]
+            weight = re.search(r'(\d+)\s{0,}g',weight_str).group(1)
+            pid = re.search(r'_(\d+)\.',image).group(1)
+        except Exception as e:
+            print('商品重量信息出错！！！',e)
+            image = item
+            weight = '0'
+            pid = ''
+        finally:
+            return_dict['pid'] = pid
+            return_dict['weight'] = weight
+            return_dict['image'] = image
+            return return_dict
 
     def run(self):
         item = '292544733016'

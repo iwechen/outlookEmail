@@ -9,3 +9,8 @@ imap_port = 993
 #imap_port = 993
 #smtp_server = "smtp.office365.com"
 #smtp_port = 587
+# rikoo_co@hotmail.com(13511973701)
+{"usr": "iwechen123@outlook.com", "pwd": "cw123456"}
+{"usr": "rikoo_co@hotmail.com", "pwd": "13511973701"}
+{"usr": "luoyuanhc@outlook.com", "pwd": "luo1234.."}
+

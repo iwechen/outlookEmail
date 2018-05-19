@@ -7,11 +7,11 @@ spider = OutlookScheduler()
 spider.run()
 print('爬取完成！！！')
 
-time.sleep(10)
-save = MongoToExcel()
-save.run()
+# time.sleep(10)
+# save = MongoToExcel()
+# save.run()
 
-print('存储完成！！！')
+# print('存储完成！！！')
 
-time.sleep(6)
+# time.sleep(6)
 
