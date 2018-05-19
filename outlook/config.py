@@ -9,6 +9,6 @@ imap_port = 993
 #imap_port = 993
 #smtp_server = "smtp.office365.com"
 #smtp_port = 587
-# rikoo_co@hotmail.com(13511973701)
+
 
 
