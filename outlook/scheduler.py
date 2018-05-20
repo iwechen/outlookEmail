@@ -22,7 +22,7 @@ from .ebay import EbayApi
 from .ems import EMS
 import json
 import pymongo
-
+import hashlib
 
 class OutlookScheduler(object):
     def __init__(self):
@@ -109,6 +109,89 @@ class OutlookScheduler(object):
         date_time = datetime.datetime.strptime(timeStr, '%Y-%m-%d %H:%M')
         return {'time_str':timeStr,'date_time':date_time}
 
+    def hash_to_md5(self,sign_str):
+        m= hashlib.md5()
+        sign_str = sign_str.encode('utf-8')
+        # 加密字符串  
+        m.update(sign_str) 
+        sign = m.hexdigest() 
+        return sign
+
+    def submit(self,weight_all):
+        if weight_all <= 50:
+            return 10
+        elif 51 <= weight_all <= 100:
+            return 20
+        elif 101 <= weight_all:
+            return 30
+
+    def ems_method(self,pay_ems,weight_all,qty_li):
+        # 邮寄方式
+        if (pay_ems > 29.2) or (weight_all > 700):
+            ems_method = '快递'
+        else:
+            if pay_ems == 21.6:
+                ems_method = '航空'
+            else:
+                if sum(qty_li) == 1:
+                    ems_method = '快递'
+                else:
+                    ems_method = '航空'
+        return ems_method
+
+    def pay_back_price(self,ems,pay_ems,item_li,weight_li,ems_method,qty_li,air_price_sum,ems_price_sum):
+        if (len(item_li)) == 1:
+            pay_back_price = 0
+        else:
+            # 1.判断大小
+            # 大大   (总数 - 1) * 14
+            if max(weight_li) > 700 and min(weight_li) > 700:
+                pay_back = (sum(qty_li)-1) * 14 + 0 * 6
+                # 判断邮寄方式
+                if ems_method == '航空':
+                    # 理论总和 - 返费金额
+                    pay_postage = air_price_sum - pay_back
+                else:
+                    # 理论总和 - 返费金额
+                    pay_postage = ems_price_sum - pay_back
+
+            # 大小  (大 - 1) * 14 + 小 * 6
+            elif max(weight_li) > 700 and min(weight_li) <= 700:
+                # 大 重量列表
+                max_li = list()
+                # 小 重量列表
+                min_li = list()
+                for weight in weight_li:
+                    if weight > 700:
+                        max_li.append(weight)
+                    else:
+                        min_li.append(weight)
+                pay_back = (len(max_li) - 1) * 14 + len(min_li) * 6
+                # 定义混合 理论总和
+                mix_price_sum =0
+                # 大 默认快递 理论总和
+                ems_price_dic = ems.functions(sum(max_li))
+                mix_price_sum += ems_price_dic['ems']
+                # 小 默认航空 理论总和
+                ems_price_dic = ems.functions(sum(min_li))
+                mix_price_sum += ems_price_dic['air']
+                # 理论总和 - 返费金额
+                pay_postage = mix_price_sum - pay_back
+
+            # 小小  (总数 - 1) * 6
+            elif max(weight_li) <= 700 and min(weight_li) <= 700:
+                pay_back = 0 * 14 + (sum(qty_li)-1) * 6
+                # 2.判断邮寄方式
+                if ems_method == '航空':
+                    # 理论总和 - 返费金额
+                    pay_postage = air_price_sum - pay_back
+                else:
+                    # 理论总和 - 返费金额
+                    pay_postage = ems_price_sum - pay_back
+            # 3，计算返还邮费金额
+            pay_back_price = round(pay_ems - pay_postage)
+        return pay_back_price
+
     def content_collec(self):
         error_name = 0
         while self.flag:
@@ -126,7 +209,11 @@ class OutlookScheduler(object):
                     f.write(content1)
                 continue
             else:
+                # 数据保存字典
                 order_data_dic = dict()
+                # 订单ID
+                sign_str = json.dumps(order_li_one) + str(int((time.time()*1000)))
+                sign = self.hash_to_md5(sign_str)
                 # 订单日期   May 2, 2018 2:06
                 time_dic = self.time_str_to_dtime(re.findall(r'Sent:\s+(.*?)\s+[A,P,M]{2}',content)[0])
                 # 客户姓名
@@ -157,6 +244,7 @@ class OutlookScheduler(object):
                 # 客户留言
                 note = re.sub(r'\r|\n','',re.findall(r'Note to seller(.*?)Shipping address',content,re.S)[0])
                 
+                order_data_dic['sign'] = sign
                 order_data_dic['time_dic'] = time_dic
                 order_data_dic['buyer_str'] = buyer_str
                 order_data_dic['buyer_email'] = buyer_email
@@ -171,18 +259,6 @@ class OutlookScheduler(object):
                 # print(item_li)
                 # 添加到任务队列
                 self._order_data_dic_queue.put(order_data_dic)
-                # print(time_dic)
-                # if time_dic==[]:
-                #     with open('ok_test.html', 'w') as f:
-                #         f.write(content)
-
-    def submit(self,weight_all):
-        if weight_all <= 50:
-            return 10
-        elif 51 <= weight_all <= 100:
-            return 20
-        elif 101 <= weight_all:
-            return 30
 
     def count_data(self):
         while True:
@@ -190,7 +266,6 @@ class OutlookScheduler(object):
 
             weight_li = list()
             pid_li = list()
-
             # 理论总和
             ems_price_sum = 0
             air_price_sum = 0
@@ -218,6 +293,7 @@ class OutlookScheduler(object):
             qty_li = order_data_dic['qty_li']
             for index, item in enumerate(item_li):
                 data_dict = dict()
+                data_dict['sign'] = order_data_dic['sign']
                 data_dict['订单日期'] = order_data_dic['time_dic']['time_str']
                 data_dict['客户姓名'] = order_data_dic['buyer_str']
                 data_dict['客户邮箱'] = order_data_dic['buyer_email']
@@ -233,73 +309,17 @@ class OutlookScheduler(object):
                 data_dict['客户留言'] = order_data_dic['note']
                 qty_li = order_data_dic['qty_li']
                 # 邮寄方式
-                if (pay_ems > 29.2) or (weight_all > 700):
-                    ems_method = '快递'
-                else:
-                    if pay_ems == 21.6:
-                        ems_method = '航空'
-                    else:
-                        if sum(qty_li) == 1:
-                            ems_method = '快递'
-                        else:
-                            ems_method = '航空'
-
+                ems_method = self.ems_method(pay_ems,weight_all,qty_li)
                 data_dict['邮寄方式'] = ems_method
                 # 返邮费
-                if (len(item_li)) == 1:
-                    pay_back_price = 0
-                else:
-                    # 1.判断大小
-                    # 大大   (总数 - 1) * 14
-                    if max(weight_li) > 700 and min(weight_li) > 700:
-                        pay_back = (sum(qty_li)-1) * 14 + 0 * 6
-                        # 判断邮寄方式
-                        if ems_method == '航空':
-                            # 理论总和 - 返费金额
-                            pay_postage = air_price_sum - pay_back
-                        else:
-                            # 理论总和 - 返费金额
-                            pay_postage = ems_price_sum - pay_back
-
-                    # 大小  (大 - 1) * 14 + 小 * 6
-                    elif max(weight_li) > 700 and min(weight_li) <= 700:
-                        # 大 重量列表
-                        max_li = list()
-                        # 小 重量列表
-                        min_li = list()
-                        for weight in weight_li:
-                            if weight > 700:
-                                max_li.append(weight)
-                            else:
-                                min_li.append(weight)
-                        pay_back = (len(max_li) - 1) * 14 + len(min_li) * 6
-                        # 定义混合 理论总和
-                        mix_price_sum =0
-                        # 大 默认快递 理论总和
-                        ems_price_dic = ems.functions(sum(max_li))
-                        mix_price_sum += ems_price_dic['ems']
-                        # 小 默认航空 理论总和
-                        ems_price_dic = ems.functions(sum(min_li))
-                        mix_price_sum += ems_price_dic['air']
-                        # 理论总和 - 返费金额
-                        pay_postage = mix_price_sum - pay_back
-
-                    # 小小  (总数 - 1) * 6
-                    elif max(weight_li) <= 700 and min(weight_li) <= 700:
-                        pay_back = 0 * 14 + (sum(qty_li)-1) * 6
-                        # 2.判断邮寄方式
-                        if ems_method == '航空':
-                            # 理论总和 - 返费金额
-                            pay_postage = air_price_sum - pay_back
-                        else:
-                            # 理论总和 - 返费金额
-                            pay_postage = ems_price_sum - pay_back
-                    # 3，计算返还邮费金额
-                    pay_back_price = round(pay_ems - pay_postage)
-
+                pay_back_price = self.pay_back_price(ems,pay_ems,item_li,weight_li,ems_method,qty_li,air_price_sum,ems_price_sum)
                 data_dict['返邮费金额'] = pay_back_price
 
-                data_dict['pid_li'] = ','.join(pid_li)
+                data_dict['产品编号集合'] = ','.join(pid_li)
+                weight_li_str = [str(i)+'g' for i in weight_li]
+
+                data_dict['产品重量集合'] = ','.join(weight_li_str)
+                data_dict['订购总数'] = sum(order_data_dic['qty_li'])
                 data_dict['image'] = image_li[0+index]
                 data_dict['date_time'] = order_data_dic['time_dic']['date_time']
                 data_dict['报'] = self.submit(weight_all)

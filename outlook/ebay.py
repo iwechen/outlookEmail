@@ -46,7 +46,7 @@ class EbayApi(object):
             print('商品重量信息出错！！！',e)
             image = item
             weight = '0'
-            pid = ''
+            pid = item
         finally:
             return_dict['pid'] = pid
             return_dict['weight'] = weight
